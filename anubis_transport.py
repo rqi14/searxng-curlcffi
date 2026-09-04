@@ -99,6 +99,8 @@ class AnubisCurlTransport(AsyncCurlTransport):
 
         retried_body = await retried.aread()
         if extract_challenge(retried_body.decode("utf-8", "replace")) is not None:
+            # Don't cache a clearance that demonstrably did not clear.
+            _CLEARANCE.pop(host, None)
             logger.warning("anubis: still challenged after redeem for %s", request.url.host)
         else:
             logger.info("anubis: cleared %s", request.url.host)
@@ -142,10 +144,21 @@ def _clearance_cookie(response: httpx.Response) -> str:
 
 
 def _with_cookie(request: httpx.Request, cookie: str) -> httpx.Request:
-    """Clone a request with the clearance cookie merged into its Cookie header."""
+    """Clone a request with the clearance cookie merged into its Cookie header.
+
+    Merged *by name, newest wins*. Naive concatenation wedges the transport for
+    good once a cached clearance expires: the expired `spchal-auth`/`sp_pow` are
+    still on the request when the fresh challenge issues its own, Anubis reads
+    the stale crumb of each duplicated pair, and the replay is challenged again
+    — which caches another stale pair, and so on until the worker restarts.
+    """
+    jar: dict[str, str] = {}
+    for crumb in f"{request.headers.get('cookie', '')}; {cookie}".split(";"):
+        name, sep, value = crumb.strip().partition("=")
+        if sep and name:
+            jar[name] = value
     headers = httpx.Headers(request.headers)
-    existing = headers.get("cookie")
-    headers["cookie"] = f"{existing}; {cookie}" if existing else cookie
+    headers["cookie"] = "; ".join(f"{k}={v}" for k, v in jar.items())
     return httpx.Request(
         request.method,
         request.url,

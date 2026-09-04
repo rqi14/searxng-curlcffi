@@ -21,14 +21,35 @@ Measured 2026-08-29 from a UK residential exit, stock SearXNG vs this image:
 | bing | ok | ok |
 | **startpage** | **CAPTCHA → 0 results** | **10 results** |
 | brave | HTTP 429 | HTTP 429 (rate limit, not fingerprint) |
-| duckduckgo | 202 + anomaly | unchanged — see below |
+| duckduckgo (html) | 202 + anomaly | unchanged — the gate is not fingerprint |
+| **duckduckgo web** | — | **10 results** — different endpoint, see below |
 
 A full query went from 20 results (google+bing) to 32 (google+startpage+bing+mwmbl)
 with zero unresponsive engines.
 
-**DuckDuckGo is out of reach this way.** Its `html.` and `lite.` endpoints gate
-*every* client behind a human challenge regardless of fingerprint, and its main
-site renders results with JS. Only a real browser gets DDG results.
+**DuckDuckGo is out of reach this way — but it is not out of reach.** Its
+`html.` and `lite.` endpoints do gate *every* client behind a human challenge
+regardless of fingerprint: re-measured 2026-09-04 across chrome, firefox133,
+safari18_0, chrome99_android and `impersonate=none` (plain curl), from both a
+datacentre and a UK residential exit, all seven identical — and the *same bytes*
+that returned 11 results one hour returned `202` + `challenge-form` the next. It
+is a server-side gate that varies over time, not a fingerprint check, so no
+amount of impersonation moves it.
+
+The fix is a different endpoint, not a better disguise. Upstream's
+**`duckduckgo_web`** engine (added 2026-06-01, `disabled: true` by default)
+scrapes `duckduckgo.com` for a `links.duckduckgo.com/d.js?…&dp=<token>` URL and
+calls that JSON API — the same family as the images engine, which never had a
+problem. No JS execution, no browser. Enable `duckduckgo web`, leave the
+`duckduckgo` (html) engine off: 10 results, no errors.
+
+An earlier revision of this file claimed DDG's main site "renders results with
+JS. Only a real browser gets DDG results." That was wrong on 2026-08-29 when it
+was written — `duckduckgo_web` had already been upstream for three months, and
+its commit message says *"as alternative to html.duckduckgo.com"* in as many
+words. The fingerprint axis had been measured to death; nobody checked how many
+DDG engine implementations shipped in the box. A "cannot be done" note is the
+most expensive kind to get wrong: it stops the next person looking.
 
 ## How the Anubis part works
 

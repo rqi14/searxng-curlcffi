@@ -14,9 +14,8 @@ from searx.network.anubis_session import _cookie_header, _with_cookie
 assert getattr(AsyncClient.request, "_anubis", False), "AsyncClient.request is not hooked"
 print("client hook ok")
 
-# A request carrying its own User-Agent must drop curl_cffi's browser default
-# headers (their sec-ch-ua hints would contradict it); one without must keep
-# them, since they are SearXNG's only source of a User-Agent.
+# DuckDuckGo must lose curl_cffi's browser default headers; everything else must
+# keep them, since they are SearXNG's only source of a User-Agent.
 seen: dict = {}
 
 
@@ -26,9 +25,9 @@ async def _spy(self, method, url, **kwargs):
 
 
 client._ORIGINAL_REQUEST = _spy  # pylint: disable=protected-access
-asyncio.run(client._request(None, "GET", "https://x/", headers={"User-Agent": "ff"}))
+asyncio.run(client._request(None, "GET", "https://links.duckduckgo.com/d.js?o=json"))
 assert seen.get("default_headers") is False, seen
-asyncio.run(client._request(None, "GET", "https://x/"))
+asyncio.run(client._request(None, "GET", "https://www.google.com/search?q=x"))
 assert "default_headers" not in seen, seen
 print("default_headers narrowing ok")
 

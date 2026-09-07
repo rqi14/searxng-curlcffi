@@ -28,12 +28,12 @@ HOOK = '''
 # --- searxng-curlcffi -----------------------------------------------------
 import os as _os  # noqa: E402  pylint: disable=wrong-import-position
 
-# 1. Drop curl_cffi's browser default headers on requests that bring their own
-#    User-Agent. `new_client` above hardcodes default_headers=True whenever
-#    impersonate is on, which contradicts an engine that sets its own UA:
-#    duckduckgo_web forces a Firefox 154 UA, curl_cffi adds Chrome's sec-ch-ua
-#    client hints beside it, and DDG answers the d.js call with `202 {}`.
-#    Measured 2026-09-07 via mihomo:
+# 1. Drop curl_cffi's browser default headers for DuckDuckGo. `new_client`
+#    above hardcodes default_headers=True whenever impersonate is on, which
+#    contradicts duckduckgo_web: that engine forces a Firefox 154 UA, curl_cffi
+#    adds Chrome's sec-ch-ua client hints beside it, and DDG answers the d.js
+#    call with `202 {}` — `KeyError: 'results'` in the parser. Measured
+#    2026-09-07 via mihomo:
 #
 #        impersonate  default_headers  links.duckduckgo.com/d.js
 #        chrome       True             202 {}       <- upstream default
@@ -41,18 +41,24 @@ import os as _os  # noqa: E402  pylint: disable=wrong-import-position
 #        firefox      True             202 {}
 #        none         False            200, 11 results
 #
-#    Turning default_headers off wholesale is NOT the fix, however tempting the
-#    table looks: those headers are now SearXNG's only source of a User-Agent
-#    (verified against an echo endpoint — the request goes out with just Host
-#    and Accept-Encoding), so google, startpage and wikipedia all start
-#    answering CAPTCHA/403. Only the requests that already carry a UA can spare
-#    them. SEARXNG_DEFAULT_HEADERS=1 disables this narrowing entirely.
+# ponytail: a host list, not a rule, because the two obvious rules were both
+#    measured wrong. "Always off" leaves SearXNG with no User-Agent at all
+#    (checked against an echo endpoint: only Host and Accept-Encoding go out) —
+#    those default headers are its only source of one now, and google, startpage
+#    and wikipedia immediately answer CAPTCHA/403. "Off whenever the engine set
+#    its own UA" catches google too, which sets a Nokia UA to get the no-JS page
+#    and still needs the rest of the headers — it CAPTCHAs without them. Add a
+#    host here only after measuring it; SEARXNG_DEFAULT_HEADERS=1 disables the
+#    whole thing.
+_NO_DEFAULT_HEADERS = frozenset({"duckduckgo.com", "links.duckduckgo.com"})
+
 _ORIGINAL_REQUEST = AsyncClient.request
 
 
 async def _request(self, method: str, url: str, **kwargs):
-    headers = kwargs.get("headers") or {}
-    if any(k.lower() == "user-agent" for k in headers):
+    from urllib.parse import urlsplit as _urlsplit  # noqa: E402
+
+    if _urlsplit(str(url)).hostname in _NO_DEFAULT_HEADERS:
         kwargs.setdefault("default_headers", False)
     return await _ORIGINAL_REQUEST(self, method, url, **kwargs)
 

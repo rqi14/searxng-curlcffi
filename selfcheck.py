@@ -12,6 +12,10 @@ from searx.network.anubis_session import _cookie_header, _with_cookie
 assert getattr(AsyncClient.request, "_anubis", False), "AsyncClient.request is not hooked"
 print("client hook ok")
 
+client = AsyncClient(enable_http=False, impersonate="chrome", verify=True)
+assert client.default_headers is False, f"default_headers={client.default_headers}"
+print("default_headers off ok")
+
 digest, nonce, elapsed_ms = solve("probe", 3)
 assert digest == hashlib.sha256(f"probe{nonce}".encode()).hexdigest()
 assert digest.startswith("000")

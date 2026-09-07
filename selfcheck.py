@@ -1,10 +1,12 @@
 """Build-time guards. Any failure here should fail the image, not surface later
 as a silent `parsing error` on every search."""
 
+import asyncio
 import hashlib
 
 from curl_cffi.requests.headers import Headers
 
+import searx.network.client as client
 from searx.network.client import AsyncClient
 from searx.network.anubis import extract_challenge, solve
 from searx.network.anubis_session import _cookie_header, _with_cookie
@@ -12,9 +14,23 @@ from searx.network.anubis_session import _cookie_header, _with_cookie
 assert getattr(AsyncClient.request, "_anubis", False), "AsyncClient.request is not hooked"
 print("client hook ok")
 
-client = AsyncClient(enable_http=False, impersonate="chrome", verify=True)
-assert client.default_headers is False, f"default_headers={client.default_headers}"
-print("default_headers off ok")
+# A request carrying its own User-Agent must drop curl_cffi's browser default
+# headers (their sec-ch-ua hints would contradict it); one without must keep
+# them, since they are SearXNG's only source of a User-Agent.
+seen: dict = {}
+
+
+async def _spy(self, method, url, **kwargs):
+    seen.clear()
+    seen.update(kwargs)
+
+
+client._ORIGINAL_REQUEST = _spy  # pylint: disable=protected-access
+asyncio.run(client._request(None, "GET", "https://x/", headers={"User-Agent": "ff"}))
+assert seen.get("default_headers") is False, seen
+asyncio.run(client._request(None, "GET", "https://x/"))
+assert "default_headers" not in seen, seen
+print("default_headers narrowing ok")
 
 digest, nonce, elapsed_ms = solve("probe", 3)
 assert digest == hashlib.sha256(f"probe{nonce}".encode()).hexdigest()
